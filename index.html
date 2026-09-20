@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Visual Hydration & Break Remind - 20-20-20 Rule</title>
+<meta name="description" content="A clean, accessible web app for remote workers and students. Enforces 20-20-20 eye rule and tracks daily water intake with visual milestones.">
+<style>
+:root{--bg:#F0F7FF;--card:#FFFFFF;--text:#1A2B4C;--muted:#6B7A99;--accent:#3A7BFF;--accent2:#4ECDC4;--border:#DDE6F3;--success:#22C55E}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;padding:20px}
+.app{max-width:900px;margin:0 auto}
+header{text-align:center;padding:30px 0}
+header h1{font-size:36px;letter-spacing:-1px}
+header p{color:var(--muted);font-size:18px;margin-top:8px;max-width:600px;margin-inline:auto}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px}
+@media(max-width:700px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--border);border-radius:24px;padding:28px;box-shadow:0 8px 24px rgba(26,43,76,0.06)}
+.card h2{font-size:20px;margin-bottom:16px;display:flex;align-items:center;gap:10px}
+.timer-display{font-size:56px;font-weight:800;text-align:center;margin:20px 0;letter-spacing:-2px;color:var(--accent);font-variant-numeric:tabular-nums}
+.progress-bar{height:12px;background:var(--bg);border-radius:10px;overflow:hidden}
+.progress-fill{height:100%;background:var(--accent);width:0%;transition:width 0.5s}
+.btn{width:100%;padding:14px;border:none;border-radius:14px;font-size:16px;font-weight:700;cursor:pointer;margin-top:16px}
+.btn-primary{background:var(--text);color:white}
+.btn-secondary{background:var(--bg);color:var(--text);border:1px solid var(--border)}
+.water-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:16px}
+.glass{aspect-ratio:1;border:2px solid var(--border);border-radius:16px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s;font-size:28px;background:white}
+.glass.filled{background:var(--accent2);border-color:var(--accent2);color:white;transform:scale(1.05)}
+.glass span{font-size:12px;font-weight:700;margin-top:4px}
+.stats{display:flex;justify-content:space-between;margin-top:16px;font-size:14px;color:var(--muted);font-weight:600}
+.milestone{margin-top:20px;padding:14px;border-radius:12px;background:#F0FDF4;border:1px solid #BBF7D0;color:#166534;font-weight:600;text-align:center;display:none}
+.milestone.show{display:block}
+#breakOverlay{position:fixed;inset:0;background:rgba(26,43,76,0.95);color:white;display:none;align-items:center;justify-content:center;z-index:100;text-align:center;padding:20px}
+#breakOverlay.active{display:flex}
+.overlay-content h2{font-size:48px;margin-bottom:16px}
+.overlay-content p{font-size:20px;opacity:0.9}
+#countdown20{font-size:80px;font-weight:800;color:var(--accent2);margin:20px 0}
+.accessible-note{margin-top:24px;text-align:center;color:var(--muted);font-size:14px}
+</style>
+</head>
+<body>
+<div class="app">
+<header>
+<h1>💧 Visual Hydration & Break Remind</h1>
+<p>Prevent eye strain, headaches & dehydration. Built for remote workers and students.</p>
+</header>
+
+<div class="grid">
+<div class="card">
+<h2>👁️ 20-20-20 Eye Care</h2>
+<p style="color:var(--muted);font-size:14px">Every 20 mins, look 20 feet away for 20 seconds.</p>
+<div class="timer-display" id="timerDisplay">20:00</div>
+<div class="progress-bar"><div class="progress-fill" id="timerProgress"></div></div>
+<div class="stats"><span id="timerStatus">Running</span><span>Next break in</span></div>
+<button class="btn btn-secondary" id="skipBtn">Skip / I took break</button>
+<button class="btn btn-primary" id="enableNotify">Enable Desktop Notifications</button>
+</div>
+
+<div class="card">
+<h2>💦 Water Tracker</h2>
+<p style="color:var(--muted);font-size:14px">Goal: 8 glasses (2L) daily. Tap to log.</p>
+<div class="water-grid" id="waterGrid"></div>
+<div class="stats"><span id="waterCount">0 / 8 glasses</span><span id="waterLiters">0L</span></div>
+<div class="milestone" id="milestone">🎉 Milestone: You're hydrated!</div>
+<button class="btn btn-secondary" id="resetWater">Reset Today</button>
+</div>
+</div>
+
+<p class="accessible-note">♿ Accessible: Large fonts, high contrast, keyboard friendly, works offline with localStorage. No login needed.</p>
+</div>
+
+<div id="breakOverlay">
+<div class="overlay-content">
+<h2>Look 20 feet away! 🌿</h2>
+<p>Relax your eyes. Look at something far away.</p>
+<div id="countdown20">20</div>
+<p>Stay here, breathe...</p>
+<button class="btn btn-primary" id="doneBreak" style="max-width:200px;margin:20px auto 0">Done</button>
+</div>
+</div>
+
+<script>
+const TIMER_TOTAL = 20 * 60;
+let timeLeft = parseInt(localStorage.getItem('vh_timeLeft') || TIMER_TOTAL);
+let water = JSON.parse(localStorage.getItem('vh_water') || '[]');
+let timerInterval, isBreak = false;
+
+const els = {
+  display: document.getElementById('timerDisplay'),
+  progress: document.getElementById('timerProgress'),
+  status: document.getElementById('timerStatus'),
+  grid: document.getElementById('waterGrid'),
+  waterCount: document.getElementById('waterCount'),
+  waterLiters: document.getElementById('waterLiters'),
+  milestone: document.getElementById('milestone'),
+  overlay: document.getElementById('breakOverlay'),
+  countdown20: document.getElementById('countdown20')
+};
+
+function formatTime(s){ const m=Math.floor(s/60); const sec=s%60; return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}` }
+
+function renderWater(){
+  els.grid.innerHTML='';
+  for(let i=0;i<8;i++){
+    const div=document.createElement('div');
+    div.className='glass'+(water.includes(i)?' filled':'');
+    div.innerHTML=`💧<span>${water.includes(i)?'Done':'250ml'}</span>`;
+    div.onclick=()=>toggleWater(i);
+    els.grid.appendChild(div);
+  }
+  els.waterCount.textContent=`${water.length} / 8 glasses`;
+  els.waterLiters.textContent=`${(water.length*0.25).toFixed(2)}L`;
+  localStorage.setItem('vh_water', JSON.stringify(water));
+  
+  let msg=''; if(water.length>=2) msg='💧 Good start! Keep going'; if(water.length>=4) msg='🔥 Halfway there - you are doing great!'; if(water.length>=8) msg='🏆 Daily goal completed! You are fully hydrated!';
+  if(msg){ els.milestone.textContent=msg; els.milestone.classList.add('show'); } else { els.milestone.classList.remove('show'); }
+}
+
+function toggleWater(i){
+  if(water.includes(i)) water=water.filter(x=>x!==i); else water.push(i);
+  renderWater();
+}
+
+function startMainTimer(){
+  clearInterval(timerInterval);
+  timerInterval=setInterval(()=>{
+    if(isBreak) return;
+    timeLeft--;
+    localStorage.setItem('vh_timeLeft', timeLeft);
+    updateTimerUI();
+    if(timeLeft<=0){ triggerBreak(); }
+  },1000);
+}
+
+function updateTimerUI(){
+  els.display.textContent=formatTime(Math.max(0,timeLeft));
+  els.progress.style.width=`${((TIMER_TOTAL-timeLeft)/TIMER_TOTAL)*100}%`;
+}
+
+function triggerBreak(){
+  isBreak=true;
+  els.overlay.classList.add('active');
+  if(Notification.permission==='granted') new Notification('👁️ Time for 20-20-20 break!',{body:'Look 20 feet away for 20 seconds'});
+  
+  let c=20; els.countdown20.textContent=c;
+  const countInt=setInterval(()=>{
+    c--; els.countdown20.textContent=c;
+    if(c<=0 || !isBreak) clearInterval(countInt);
+  },1000);
+  
+  setTimeout(()=>{ if(isBreak) endBreak(); },20000);
+}
+
+function endBreak(){
+  isBreak=false; els.overlay.classList.remove('active');
+  timeLeft=TIMER_TOTAL; localStorage.setItem('vh_timeLeft', timeLeft);
+  updateTimerUI();
+}
+
+document.getElementById('skipBtn').onclick=triggerBreak;
+document.getElementById('doneBreak').onclick=endBreak;
+document.getElementById('resetWater').onclick=()=>{ if(confirm('Reset water today?')){ water=[]; renderWater(); }};
+document.getElementById('enableNotify').onclick=async()=>{
+  const perm=await Notification.requestPermission();
+  alert(perm==='granted'?'Notifications enabled!':'Please allow notifications in browser settings.');
+};
+
+const today=new Date().toDateString();
+if(localStorage.getItem('vh_date')!==today){
+  localStorage.setItem('vh_date',today); water=[]; timeLeft=TIMER_TOTAL;
+  localStorage.setItem('vh_water',JSON.stringify([]));
+}
+renderWater(); updateTimerUI(); startMainTimer();
+</script>
+</body>
+</html>
